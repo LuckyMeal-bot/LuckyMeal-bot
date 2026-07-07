@@ -1698,14 +1698,93 @@ async def admin_link_telegram(update: Update, context: ContextTypes.DEFAULT_TYPE
     return ConversationHandler.END
 
 
-# Admin offer creation reuses venue offer states
-async def admin_offer_title(update, context):      return await offer_title(update, context)
-async def admin_offer_orig(update, context):       return await offer_original_price(update, context)
-async def admin_offer_price_handler(update, context): return await offer_price(update, context)
-async def admin_offer_qty(update, context):        return await offer_quantity(update, context)
-async def admin_offer_time(update, context):       return await offer_pickup_time(update, context)
-async def admin_offer_photo_handler(update, context): return await offer_photo(update, context)
-async def admin_offer_photo_skip_handler(update, context): return await offer_photo_skip(update, context)
+# ── Admin offer creation (own state constants to avoid state number conflicts) ─
+
+async def admin_offer_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    title = update.message.text.strip()
+    if len(title) < 3:
+        await update.message.reply_text("Назва занадто коротка. Введіть ще раз.")
+        return ADMIN_OFFER_TITLE
+    context.user_data["new_offer"]["title"] = title
+    await update.message.reply_text("Крок 2 з 5 — Введіть звичайну ціну набору (грн).\nНаприклад: 600")
+    return ADMIN_OFFER_ORIG
+
+
+async def admin_offer_orig(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        val = float(update.message.text.strip().replace(",", "."))
+    except ValueError:
+        await update.message.reply_text("Ціна має бути числом. Наприклад: 600")
+        return ADMIN_OFFER_ORIG
+    if val <= 0:
+        await update.message.reply_text("Ціна має бути більшою за нуль.")
+        return ADMIN_OFFER_ORIG
+    context.user_data["new_offer"]["original_price"] = val
+    await update.message.reply_text("Крок 3 з 5 — Введіть ціну зі знижкою (грн).\nНаприклад: 300")
+    return ADMIN_OFFER_PRICE
+
+
+async def admin_offer_price_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        val = float(update.message.text.strip().replace(",", "."))
+    except ValueError:
+        await update.message.reply_text("Ціна має бути числом. Наприклад: 300")
+        return ADMIN_OFFER_PRICE
+    if val <= 0:
+        await update.message.reply_text("Ціна має бути більшою за нуль.")
+        return ADMIN_OFFER_PRICE
+    if val > context.user_data["new_offer"]["original_price"]:
+        await update.message.reply_text("Ціна зі знижкою не може бути вищою за звичайну.")
+        return ADMIN_OFFER_PRICE
+    context.user_data["new_offer"]["price"] = val
+    await update.message.reply_text("Крок 4 з 5 — Введіть кількість наборів.\nНаприклад: 5")
+    return ADMIN_OFFER_QTY
+
+
+async def admin_offer_qty(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        qty = int(update.message.text.strip())
+    except ValueError:
+        await update.message.reply_text("Кількість має бути цілим числом. Наприклад: 5")
+        return ADMIN_OFFER_QTY
+    if qty <= 0:
+        await update.message.reply_text("Кількість має бути більшою за нуль.")
+        return ADMIN_OFFER_QTY
+    context.user_data["new_offer"]["quantity"] = qty
+    await update.message.reply_text("Крок 5 з 5 — Введіть час видачі.\nНаприклад: сьогодні 19:00–20:00")
+    return ADMIN_OFFER_TIME
+
+
+async def admin_offer_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    val = update.message.text.strip()
+    if len(val) < 3:
+        await update.message.reply_text("Введіть час видачі трохи детальніше.")
+        return ADMIN_OFFER_TIME
+    context.user_data["new_offer"]["pickup_time"] = val
+    await update.message.reply_text(
+        "📷 Додайте фото набору або натисніть «Пропустити».",
+        reply_markup=photo_skip_keyboard(),
+    )
+    return ADMIN_OFFER_PHOTO
+
+
+async def admin_offer_photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    photo_file_id = update.message.photo[-1].file_id
+    await _save_new_offer(update, context, photo_file_id=photo_file_id)
+    await update.message.reply_text(
+        "✅ Пропозицію додано з фото!", reply_markup=admin_menu_keyboard()
+    )
+    return ConversationHandler.END
+
+
+async def admin_offer_photo_skip_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await _save_new_offer(update, context)
+    await query.edit_message_text(
+        "✅ Пропозицію додано!", reply_markup=admin_menu_keyboard()
+    )
+    return ConversationHandler.END
 
 
 # ── Bot setup ──────────────────────────────────────────────────────────────────
