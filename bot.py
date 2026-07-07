@@ -1711,17 +1711,32 @@ async def admin_offer_photo_skip_handler(update, context): return await offer_ph
 # ── Bot setup ──────────────────────────────────────────────────────────────────
 
 async def post_init(application: Application) -> None:
-    await application.bot.set_my_commands([
+    from telegram import BotCommandScopeAllPrivateChats, BotCommandScopeChat
+
+    # Commands visible to everyone
+    public_commands = [
         BotCommand("start",       "🏠 Головна"),
         BotCommand("offers",      "🔍 Пропозиції"),
         BotCommand("mybookings",  "❤️ Мої бронювання"),
         BotCommand("myvenue",     "🏪 Мій заклад"),
-        BotCommand("admin",       "🛠 Адмін-панель"),
-        BotCommand("loadvenues",  "📥 Завантажити всі заклади (адмін)"),
         BotCommand("help",        "ℹ️ Допомога"),
         BotCommand("myid",        "Мій Telegram ID"),
         BotCommand("cancel",      "Скасувати поточну дію"),
-    ])
+    ]
+    await application.bot.set_my_commands(
+        public_commands, scope=BotCommandScopeAllPrivateChats()
+    )
+
+    # Extra commands visible only to admin
+    admin_id = get_admin_chat_id()
+    if admin_id:
+        await application.bot.set_my_commands(
+            public_commands + [
+                BotCommand("admin",      "🛠 Адмін-панель"),
+                BotCommand("loadvenues", "📥 Завантажити всі заклади"),
+            ],
+            scope=BotCommandScopeChat(chat_id=int(admin_id)),
+        )
 
     # ── Daily scheduler (17:00 reminder + midnight reset) ──────────────────────
     if application.job_queue:
@@ -1884,5 +1899,4 @@ def run():
 
 if __name__ == "__main__":
     run()
-
 
