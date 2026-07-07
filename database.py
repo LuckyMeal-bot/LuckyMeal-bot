@@ -96,7 +96,7 @@ def init_db():
 
         # ── Migrations ─────────────────────────────────────────────────────────
         venue_cols = {
-            col["name"]: col
+            col["name"]: dict(col)
             for col in connection.execute("PRAGMA table_info(venues)").fetchall()
         }
 
@@ -133,7 +133,7 @@ def init_db():
             connection.execute("DROP TABLE venues")
             connection.execute("ALTER TABLE venues_v2 RENAME TO venues")
             venue_cols = {
-                col["name"]: col
+                col["name"]: dict(col)
                 for col in connection.execute("PRAGMA table_info(venues)").fetchall()
             }
 
