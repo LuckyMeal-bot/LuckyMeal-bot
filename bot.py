@@ -522,19 +522,24 @@ async def mybookings_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def myvenue_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     venue = get_venue_by_telegram_id(update.effective_user.id)
-    if venue is None or not venue_profile_is_complete(venue):
+    if venue is None:
         await update.message.reply_text(
             "🏪 Профіль закладу не знайдено.\n\n"
             "Натисніть /start, оберіть «Я заклад» і зареєструйте профіль."
         )
         return
     instagram_line = f"📷 {venue['instagram']}\n" if venue["instagram"] else ""
+    missing = [label for field, label in [
+        ("address", "адреса"), ("phone", "телефон"), ("contact_person", "контакт")
+    ] if not venue[field]]
+    warning = f"\n\n⚠️ Не заповнено: {', '.join(missing)}. Додайте через адміна." if missing else ""
     await update.message.reply_text(
         f"🏪 {venue['name']}\n"
-        f"📍 {venue['address']}\n"
-        f"📞 {venue['phone']}\n"
+        f"📍 {venue['address'] or '—'}\n"
+        f"📞 {venue['phone'] or '—'}\n"
         f"{instagram_line}"
-        f"👤 {venue['contact_person']}",
+        f"👤 {venue['contact_person'] or '—'}"
+        f"{warning}",
         reply_markup=venue_keyboard(),
     )
 
@@ -758,11 +763,12 @@ async def offer_pickup_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Введіть час видачі трохи детальніше.")
         return OFFER_PICKUP_TIME
     context.user_data["new_offer"]["pickup_time"] = pickup_time
+    await _save_new_offer(update, context)
     await update.message.reply_text(
-        "📷 Додайте фото набору або натисніть «Пропустити».",
-        reply_markup=photo_skip_keyboard(),
+        "✅ Пропозицію додано! Покупці вже можуть її бачити.",
+        reply_markup=venue_keyboard(),
     )
-    return OFFER_PHOTO
+    return ConversationHandler.END
 
 
 async def _save_new_offer(update: Update, context: ContextTypes.DEFAULT_TYPE, photo_file_id=None):
@@ -867,11 +873,16 @@ async def confirm_booking_callback(update: Update, context: ContextTypes.DEFAULT
     else:
         await query.edit_message_text(confirmation, reply_markup=buyer_keyboard())
 
-    await send_notification(context.bot, offer["venue_owner_telegram_id"],
+    # Якщо заклад без власника — сповіщення йде адміну
+    venue_notify_id = offer["venue_owner_telegram_id"] or get_admin_chat_id()
+    await send_notification(context.bot, venue_notify_id,
                             venue_notification_text(booking_id, offer, buyer_name, buyer.username),
                             "venue")
-    await send_notification(context.bot, get_admin_chat_id(),
-                            admin_notification_text(booking_id, offer, buyer), "admin")
+    # Адміну окреме службове повідомлення (тільки якщо він не є власником)
+    admin_id = get_admin_chat_id()
+    if admin_id and str(venue_notify_id) != str(admin_id):
+        await send_notification(context.bot, admin_id,
+                                admin_notification_text(booking_id, offer, buyer), "admin")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1572,8 +1583,8 @@ async def admin_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     if data.startswith("adm_ef_"):
         parts    = data.split("_")
-        field    = parts[2]
-        venue_id = int(parts[3])
+        venue_id = int(parts[-1])          # завжди останній елемент
+        field    = "_".join(parts[2:-1])   # все між adm_ef_ і venue_id
         context.user_data["adm_edit_venue_id"] = venue_id
         context.user_data["adm_edit_field"]    = field
 
@@ -1761,11 +1772,11 @@ async def admin_offer_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Введіть час видачі трохи детальніше.")
         return ADMIN_OFFER_TIME
     context.user_data["new_offer"]["pickup_time"] = val
+    await _save_new_offer(update, context)
     await update.message.reply_text(
-        "📷 Додайте фото набору або натисніть «Пропустити».",
-        reply_markup=photo_skip_keyboard(),
+        "✅ Пропозицію додано!", reply_markup=admin_menu_keyboard()
     )
-    return ADMIN_OFFER_PHOTO
+    return ConversationHandler.END
 
 
 async def admin_offer_photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
