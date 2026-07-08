@@ -210,9 +210,14 @@ def booking_confirmation_text(booking_id, offer):
     return "\n".join(lines)
 
 
-def venue_notification_text(booking_id, offer, buyer_name, buyer_username=None):
+def venue_notification_text(booking_id, offer, buyer_name, buyer_username=None, buyer_id=None):
     now = datetime.now().strftime("%d.%m.%Y о %H:%M")
-    buyer_display = f"@{buyer_username}" if buyer_username else buyer_name
+    if buyer_username:
+        buyer_display = f"@{buyer_username}"
+    elif buyer_id:
+        buyer_display = f'<a href="tg://user?id={buyer_id}">{buyer_name}</a>'
+    else:
+        buyer_display = buyer_name
     remaining = max(offer["quantity"] - 1, 0)
     return (
         f"🔔 Нове бронювання\n\n"
@@ -241,11 +246,11 @@ def admin_notification_text(booking_id, offer, buyer):
     )
 
 
-async def send_notification(bot, chat_id, text, notification_name):
+async def send_notification(bot, chat_id, text, notification_name, parse_mode=None):
     if not chat_id:
         return False
     try:
-        await bot.send_message(chat_id=chat_id, text=text)
+        await bot.send_message(chat_id=chat_id, text=text, parse_mode=parse_mode)
         return True
     except Exception as error:
         logging.warning("Could not send %s notification: %s", notification_name, error)
@@ -876,8 +881,8 @@ async def confirm_booking_callback(update: Update, context: ContextTypes.DEFAULT
     # Якщо заклад без власника — сповіщення йде адміну
     venue_notify_id = offer["venue_owner_telegram_id"] or get_admin_chat_id()
     await send_notification(context.bot, venue_notify_id,
-                            venue_notification_text(booking_id, offer, buyer_name, buyer.username),
-                            "venue")
+                            venue_notification_text(booking_id, offer, buyer_name, buyer.username, buyer.id),
+                            "venue", parse_mode="HTML")
     # Адміну окреме службове повідомлення (тільки якщо він не є власником)
     admin_id = get_admin_chat_id()
     if admin_id and str(venue_notify_id) != str(admin_id):
@@ -1989,4 +1994,3 @@ def run():
 
 if __name__ == "__main__":
     run()
-
